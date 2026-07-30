@@ -1,0 +1,16 @@
+# filebeat.yml
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /logs/conn.log
+      - /logs/http.log
+    multiline.pattern: '^\d{4}-\d{2}-\d{2}'
+    multiline.negate: true
+    multiline.match: after
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+setup.kibana.enabled: false
+monitoring.enabled: false
