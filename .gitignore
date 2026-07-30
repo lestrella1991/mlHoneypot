@@ -2,4 +2,4 @@ data/
 pcap/
 recon-output/*
 sites/*
-
+predictor/predict/model/
