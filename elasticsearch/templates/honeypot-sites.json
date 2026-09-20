@@ -1,0 +1,65 @@
+{
+  "index_patterns": ["honeypot-sites-*"],
+  "priority": 100,
+  "template": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "event": {
+          "properties": {
+            "kind": {
+              "type": "keyword"
+            },
+            "category": {
+              "type": "keyword"
+            },
+            "type": {
+              "type": "keyword"
+            },
+            "dataset": {
+              "type": "keyword"
+            }
+          }
+        },
+        "honeypot": {
+          "properties": {
+            "site_id": {
+              "type": "keyword"
+            },
+            "status": {
+              "type": "keyword"
+            },
+            "original_domain": {
+              "type": "keyword"
+            },
+            "output_dir": {
+              "type": "keyword"
+            },
+            "pages_visited": {
+              "type": "integer"
+            },
+            "resources_downloaded": {
+              "type": "integer"
+            },
+            "external_references": {
+              "type": "integer"
+            },
+            "errors": {
+              "type": "integer"
+            }
+          }
+        },
+        "tls": {
+            "properties": {
+                "verification_failed": {
+                    "type": "boolean"
+                }
+            }
+        }
+
+      }
+    }
+  }
+}

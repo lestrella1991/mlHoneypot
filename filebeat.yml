@@ -1,13 +1,68 @@
-# filebeat.yml
 filebeat.inputs:
-  - type: log
+
+  - type: filestream
+    id: honeypot-predictions
+    enabled: true
+    paths:
+      - /data/predictions.jsonl
+
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+
+    fields:
+      log_type: "detections"
+    fields_under_root: true
+
+  - type: filestream
+    id: honeypot-zeek
     enabled: true
     paths:
       - /logs/conn.log
       - /logs/http.log
-    multiline.pattern: '^\d{4}-\d{2}-\d{2}'
-    multiline.negate: true
-    multiline.match: after
+
+    fields:
+      log_type: "zeek"
+    fields_under_root: true
+
+  - type: filestream
+    id: honeypot-nginx
+    enabled: true
+
+    paths:
+      - /var/log/nginx/honeypot_access.json
+
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+
+    fields:
+      log_type: "nginx"
+
+    fields_under_root: true
+  
+  - type: filestream
+    id: honeypot-sites
+
+    paths:
+      - /sites/sites_events.jsonl
+
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+
+    fields:
+      log_type: "sites"
+
+    fields_under_root: true
+  
+
+output.logstash:
+  hosts:
+    - "logstash:5044"
 
 output.logstash:
   hosts: ["logstash:5044"]

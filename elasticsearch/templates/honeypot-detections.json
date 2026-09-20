@@ -1,0 +1,53 @@
+{
+  "index_patterns": ["honeypot-detections-*"],
+  "priority": 100,
+  "template": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "source": {
+          "properties": {
+            "ip": {
+              "type": "ip"
+            }
+          }
+        },
+        "network": {
+          "properties": {
+            "transport": {
+              "type": "keyword"
+            },
+            "service": {
+              "type": "keyword"
+            }
+          }
+        },
+        "ml": {
+          "properties": {
+            "model": {
+              "type": "keyword"
+            },
+            "score": {
+              "type": "float"
+            },
+            "threshold": {
+              "type": "float"
+            },
+            "classification": {
+              "type": "keyword"
+            }
+          }
+        },
+        "honeypot": {
+          "properties": {
+            "site_id": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

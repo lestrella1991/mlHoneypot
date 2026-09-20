@@ -1,6 +1,32 @@
 
 services:
 
+  # nordvpn:
+  #   build:
+  #     context: ./nordvpn
+  #     dockerfile: Dockerfile
+  #   container_name: honeypot_nordvpn
+  #   hostname: honeypot-vpn
+  #   cap_add:
+  #     - NET_ADMIN
+  #   sysctls:
+  #     - net.ipv6.conf.all.disable_ipv6=0
+  #   environment:
+  #     NORDVPN_TOKEN: ${NORDVPN_TOKEN}
+  #     NORDVPN_COUNTRY: ${NORDVPN_COUNTRY:-Argentina}
+  #   volumes:
+  #     - ./nordvpn/entrypoint.sh:/entrypoint.sh:ro
+  #   entrypoint: ["/bin/bash", "/entrypoint.sh"]
+  #   networks:
+  #     - recon_net
+  #   healthcheck:
+  #     test: ["CMD-SHELL","nordvpn status | grep -q 'Status: Connected'" ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 12
+  #     start_period: 30s
+  #   restart: unless-stopped
+
   recon:
     build:
       context: ./recon
@@ -14,6 +40,13 @@ services:
       RECON_OUTPUT: /work/recon/active-sites.txt
       SITES_DIR: /work/sites
       GENERATED_OUTPUT: /work/generated
+    #network_mode: "service:nordvpn"  
+    networks:
+      recon_net:
+        ipv4_address: 172.50.0.20
+    #depends_on:
+    #  nordvpn:
+    #    condition: service_healthy
     volumes:
       - ./sites:/work/sites:rw
       - ./generated:/work/generated:rw
@@ -31,6 +64,7 @@ services:
     volumes:
       - ./sites:/usr/share/nginx/sites:ro
       - ./generated:/etc/nginx/generated:ro
+      - nginx_logs:/var/log/nginx
     command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/generated/nginx.conf"]
     networks:
       sites:
@@ -72,7 +106,7 @@ services:
   zeek:
     image: blacktop/zeek
     container_name: zeek_monitor
-    command: ["-i", "enp0s3","LogAscii::use_json=T"]
+    command: ["-i", "enX0","LogAscii::use_json=T"]
     network_mode: "host"
     cap_add:
       - NET_RAW
@@ -98,7 +132,31 @@ services:
     networks:
       elknet:
         ipv4_address: 172.30.0.10
+
+    healthcheck:
+      test: ["CMD-SHELL","curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
     restart: unless-stopped
+
+  elasticsearch-init:
+    image: curlimages/curl:latest
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+    networks:
+      elknet:
+
+    volumes:
+      - ./elasticsearch/templates:/templates:ro
+      - ./elasticsearch/init.sh:/init.sh:ro
+
+    entrypoint: ["/bin/sh", "/init.sh"]
+
 
   logstash:
     image: docker.elastic.co/logstash/logstash:7.17.10
@@ -126,7 +184,30 @@ services:
     networks:
       elknet:
         ipv4_address: 172.30.0.12
+    healthcheck:
+      test: ["CMD-SHELL","curl -fsS http://localhost:5601/api/status > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    
     restart: unless-stopped
+
+  kibana-init:
+    image: curlimages/curl:latest
+
+    depends_on:
+      kibana:
+        condition: service_healthy
+    
+    networks:
+      elknet:
+
+    volumes:
+      - ./kibana/init.sh:/init.sh:ro
+      - ./kibana/honeypot_dashboard.ndjson:/dashboard.ndjson:ro
+
+    entrypoint: ["/bin/sh", "/init.sh"]
 
   filebeat:
     image: docker.elastic.co/beats/filebeat:7.17.10
@@ -134,6 +215,9 @@ services:
     volumes:
       - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
       - ./pcap:/logs:ro
+      - ./data:/data:ro
+      - nginx_logs:/var/log/nginx:ro
+      - ./sites/sites_events.jsonl:/sites/sites_events.jsonl:ro
     depends_on:
       - logstash
     networks:
@@ -154,6 +238,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
 
+volumes:
+  nginx_logs:
+
   
 networks:
   zeeknet:
@@ -172,3 +259,8 @@ networks:
     ipam:
       config:
         - subnet: 172.40.0.0/24
+  recon_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.50.0.0/24

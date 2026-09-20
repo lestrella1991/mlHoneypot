@@ -17,7 +17,32 @@ assetfinder --subs-only "$TARGET_DOMAIN" | sed '/^[[:space:]]*$/d' | sort -u > "
 printf '%s\n' "$TARGET_DOMAIN" >> "$tmp_assets"
 sort -u "$tmp_assets" -o "$tmp_assets"
 
-cat "$tmp_assets" | httprobe | sed '/^[[:space:]]*$/d' | sort -u > "$tmp_hosts"
+cat "$tmp_assets" | httprobe | sed '/^[[:space:]]*$/d' | sort -u | awk '
+{
+        url = $0
+        host = url
+
+        # Sacamos únicamente el esquema.
+        sub(/^https?:\/\//, "", host)
+
+        # Si encontramos HTTPS, siempre tiene prioridad.
+        if (url ~ /^https:\/\//) {
+            urls[host] = url
+            has_https[host] = 1
+        }
+        # HTTP solamente se guarda si todavía no vimos HTTPS.
+        else if (!(host in has_https)) {
+            urls[host] = url
+        }
+    }
+
+    END {
+        for (host in urls) {
+            print urls[host]
+        }
+    }
+  ' \
+  | sort > "$tmp_hosts"
 
 count="$(wc -l < "$tmp_hosts" | tr -d ' ')"
 if [ "$count" -eq 0 ]; then

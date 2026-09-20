@@ -9,14 +9,19 @@ import mimetypes
 import os
 import re
 import signal
+from pathlib import Path
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
-
+from datetime import datetime, timezone
 import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import urllib3
+
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 ALLOWED_SCHEMES = {"http", "https"}
 IGNORED_PREFIXES = ("#", "javascript:", "mailto:", "tel:", "data:", "blob:")
@@ -30,7 +35,7 @@ CSS_URL_PATTERN = re.compile(r"url\((['\"]?)(.*?)\1\)", re.I)
 DEFAULT_TIMEOUT = 15
 DEFAULT_MAX_DEPTH = 4
 DEFAULT_MAX_FILE_SIZE = 20 * 1024 * 1024
-DEFAULT_USER_AGENT = "Authorized-Honeypot-Cloner/3.0"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
 logger = logging.getLogger("honeypot-cloner")
 
 @dataclass
@@ -120,9 +125,80 @@ def build_session(user_agent: str) -> requests.Session:
     session.mount("https://", adapter)
     session.headers.update({
         "User-Agent": user_agent,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "identity"
     })
+    
     return session
+
+def verify_proxy(session: requests.Session) -> None:
+    try:
+        response = session.get(
+            "https://check.torproject.org/api/ip",
+            timeout=20
+        )
+        response.raise_for_status()
+
+        data = response.json()
+
+        if not data.get("IsTor"):
+            raise RuntimeError(
+                "La conexión no está saliendo por Tor"
+            )
+
+        logger.info(
+            "Tor operativo. Exit IP: %s",
+            data.get("IP", "unknown")
+        )
+
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"No se pudo validar la conexión Tor: {exc}"
+        ) from exc
+
+def write_sites_events(root: Path, results: list[dict[str, object]]) -> None:
+    output = root / "sites_events.jsonl"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    with output.open("w", encoding="utf-8") as f:
+        for result in results:
+            if result.get("status") != "ok":
+                continue
+
+            target = str(result["target"])
+            host = urlparse(target).hostname or target
+
+            event = {
+                "@timestamp": now,
+                "event": {
+                    "kind": "state",
+                    "category": ["configuration"],
+                    "type": ["creation"],
+                    "dataset": "honeypot.sites"
+                },
+                "honeypot": {
+                    "site_id": result["site-id"],
+                    "status": result["status"],
+                    "original_domain": host,
+                    "output_dir": str(result["output_dir"]),
+                    "pages_visited": int(result.get("pages_visited", 0)),
+                    "resources_downloaded": int(
+                        result.get("resources_downloaded", 0)
+                    ),
+                    "external_references": int(
+                        result.get("external_references", 0)
+                    ),
+                    "errors": int(result.get("errors", 0))
+                },
+                "tls": {
+                    "verification_failed": bool(
+                    result.get("tls", {}).get("verification_failed", False)
+                    )
+                }
+            }
+
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
 
 class SiteCrawler:
     def __init__(self, base_url: str, output_dir: Path, mode: str, max_depth: int,
@@ -141,6 +217,8 @@ class SiteCrawler:
         self.errors: list[dict[str, str]] = []
         self.external_references: list[dict[str, str]] = []
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.verify_tls = True
+        self.tls_validation_failed = False
 
     def is_internal(self, url: str) -> bool:
         p = urlparse(url)
@@ -148,7 +226,20 @@ class SiteCrawler:
 
     @staticmethod
     def sanitize_segment(segment: str) -> str:
-        return re.sub(r"[^a-zA-Z0-9._-]", "_", segment.strip()) or "index"
+        cleaned = re.sub(r"[^a-zA-Z0-9._-]", "_", segment.strip()) or "index"
+
+        if len(cleaned.encode("utf-8")) <= 180:
+            return cleaned
+
+        suffix = Path(cleaned).suffix
+        stem = Path(cleaned).stem
+
+        digest = hashlib.sha256(cleaned.encode()).hexdigest()[:12]
+
+        max_stem_len = 180 - len(suffix.encode("utf-8")) - len(digest) - 1
+        stem = stem[:max_stem_len]
+
+        return f"{stem}_{digest}{suffix}"
 
     def normalize_reference(self, current_url: str, reference: str) -> str | None:
         reference = reference.strip()
@@ -189,19 +280,56 @@ class SiteCrawler:
 
     def local_reference(self, source_url: str, target_url: str, target_is_html: bool,
                         external: bool = False) -> str:
-        source = self.url_to_local_path(source_url, is_html=True)
+        # source = self.url_to_local_path(source_url, is_html=True)
         target = self.url_to_local_path(target_url, is_html=target_is_html, external=external)
-        return Path(os.path.relpath(target, source.parent)).as_posix()
+        relative = target.relative_to(self.output_dir)
+        return "/" + relative.as_posix().lstrip("/")
+        # return Path(os.path.relpath(target, source.parent)).as_posix()
 
     def fetch(self, url: str) -> tuple[FetchMetadata, bytes] | None:
         try:
-            r = self.session.get(url, timeout=self.timeout, stream=True, allow_redirects=True)
+            try:
+                r = self.session.get(
+                    url,
+                    timeout=(10, self.timeout),
+                    stream=True,
+                    allow_redirects=True,
+                    verify=self.verify_tls
+                )
+            except requests.exceptions.SSLError as exc:
+
+                if not self.verify_tls:
+                    raise
+
+                logger.warning(
+                    "TLS validation failed for %s. "
+                    "Disabling certificate validation for this site.",
+                    self.base_url
+                )
+
+                self.verify_tls = False
+                self.tls_validation_failed = True
+
+                r = self.session.get(
+                    url,
+                    timeout=(10, self.timeout),
+                    stream=True,
+                    allow_redirects=True,
+                    verify=False
+                )
+
         except requests.RequestException as exc:
             self.errors.append({"url": url, "error": str(exc)})
             return None
-        meta = FetchMetadata(url, r.url, r.status_code,
-                             {str(k): str(v) for k, v in r.headers.items()},
-                             r.headers.get("Content-Type", ""))
+
+        meta = FetchMetadata(
+            url,
+            r.url,
+            r.status_code,
+            {str(k): str(v) for k, v in r.headers.items()},
+            r.headers.get("Content-Type", "")
+        )
+
         if r.status_code >= 400:
             self.errors.append({"url": url, "error": f"HTTP {r.status_code}"})
             r.close()
@@ -216,6 +344,25 @@ class SiteCrawler:
                     self.errors.append({"url": url, "error": "max_file_size exceeded"})
                     return None
                 chunks.append(chunk)
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ReadTimeout
+        ) as exc:
+            logger.warning(
+            "Incomplete/failed response while downloading %s: %s",
+            url,
+            exc
+        )
+
+            self.errors.append({
+                "url": url,
+                "error": str(exc),
+                "type": "incomplete_response"
+            })
+
+            return None
+
         finally:
             r.close()
         return meta, b"".join(chunks)
@@ -427,6 +574,15 @@ def parse_args() -> argparse.Namespace:
 def signal_handler(sig: int, frame: object) -> None:
     raise SystemExit(130)
 
+def site_id(url: str) -> str:
+    normalized = normalize_url(url)
+
+    digest = hashlib.sha256(
+        normalized.encode("utf-8")
+    ).hexdigest()[:12]
+
+    return f"site-{digest}"
+
 def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -449,17 +605,37 @@ def main() -> int:
             crawler.crawl(target)
             crawler.save_reports()
             results.append({
-                "target": target, "output_dir": str(out), "status": "ok",
+
+                "site-id": site_id(target),"target": target, "output_dir": str(out), "status": "ok",
                 "pages_visited": len(crawler.visited_pages),
                 "resources_downloaded": len(crawler.downloaded_resources),
                 "external_references": len(crawler.external_references),
                 "errors": len(crawler.errors),
+                "tls": {
+                "verification_failed": crawler.tls_validation_failed
+                }
             })
         except Exception as exc:
             logger.exception("Falló %s", target)
             results.append({"target": target, "output_dir": str(out), "status": "failed", "error": str(exc)})
     write_global_summary(args.output, targets, results)
-    return 1 if any(x["status"] != "ok" for x in results) else 0
+    write_sites_events(args.output, results)
+    successful = sum(1 for x in results if x.get("status") == "ok")
+    if successful == 0:
+        logger.error("Todos los targets fallaron de forma fatal")
+        return 1
+
+    failed = len(results) - successful
+    if failed:
+        logger.warning(
+            "Crawl terminado con %d target(s) fatalmente fallidos y %d correctos; "
+            "se continúa el pipeline.",
+            failed, successful
+        )
+
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

@@ -1,0 +1,71 @@
+{
+  "index_patterns": ["honeypot-network-*"],
+  "priority": 100,
+  "template": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "source": {
+          "properties": {
+            "ip": {
+              "type": "ip"
+            },
+            "port": {
+              "type": "integer"
+            },
+            "bytes": {
+              "type": "long"
+            },
+            "packets": {
+              "type": "long"
+            }
+          }
+        },
+        "destination": {
+          "properties": {
+            "ip": {
+              "type": "ip"
+            },
+            "port": {
+              "type": "integer"
+            },
+            "bytes": {
+              "type": "long"
+            },
+            "packets": {
+              "type": "long"
+            }
+          }
+        },
+        "network": {
+          "properties": {
+            "transport": {
+              "type": "keyword"
+            },
+            "protocol": {
+              "type": "keyword"
+            },
+            "direction": {
+              "type": "keyword"
+            },
+            "bytes": {
+              "type": "long"
+            },
+            "packets": {
+              "type": "long"
+            }
+          }
+        },
+        "honeypot": {
+          "properties": {
+            "site_id": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

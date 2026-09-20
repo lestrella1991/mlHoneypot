@@ -57,16 +57,62 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    log_format main '$remote_addr - $host [$time_local] '
-                    '"$request" $status $body_bytes_sent '
-                    '"$http_referer" "$http_user_agent"';
+    log_format honeypot_json escape=json
+    '{'
+      '"@timestamp":"$time_iso8601",'
+      '"event":{'
+        '"kind":"event",'
+        '"category":["web","network"],'
+        '"type":["access"],'
+        '"dataset":"honeypot.nginx"'
+      '},'
+      '"source":{'
+        '"ip":"$remote_addr",'
+        '"port":"$remote_port"'
+      '},'
+      '"destination":{'
+        '"ip":"$server_addr",'
+        '"port":"$server_port"'
+      '},'
+      '"network":{'
+        '"transport":"tcp",'
+        '"protocol":"http",'
+        '"direction":"inbound"'
+      '},'
+      '"http":{'
+        '"request":{'
+          '"method":"$request_method"'
+        '},'
+        '"response":{'
+          '"status_code":"$status",'
+          '"body":{'
+            '"bytes":"$body_bytes_sent"'
+          '}'
+        '}'
+      '},'
+      '"url":{'
+        '"domain":"$host",'
+        '"path":"$uri",'
+        '"original":"$request_uri"'
+      '},'
+      '"user_agent":{'
+        '"original":"$http_user_agent"'
+      '},'
+      '"honeypot":{'
+        '"site_id":"$honeypot_site_id",'
+        '"original_domain":"$honeypot_original_domain",'
+        '"clone_domain":"$host"'
+      '}'
+    '}';
 
     sendfile on;
     keepalive_timeout 65;
     server_tokens off;
 
     include /etc/nginx/generated/sites/*.conf;
+    include /etc/nginx/conf.d/*.conf;
 }
+
 '''
 
 
@@ -92,16 +138,24 @@ def build_default_server(first_slug: str, listen_port: int) -> str:
 '''
 
 
-def build_site_server(host: str, slug: str, listen_port: int) -> str:
+def build_site_server(
+    host: str,
+    slug: str,
+    site_id: str,
+    listen_port: int
+    ) -> str:
     root = f"/usr/share/nginx/sites/{slug}"
     return f'''server {{
     listen {listen_port};
     server_name {nginx_escape(host)};
 
+    set $honeypot_site_id "{nginx_escape(site_id)}";
+    set $honeypot_original_domain "{nginx_escape(host)}";
+
     root {nginx_escape(root)};
     index index.html;
 
-    access_log /var/log/nginx/{nginx_escape(slug)}.access.log main;
+    access_log /var/log/nginx/honeypot_access.json honeypot_json;
     error_log /var/log/nginx/{nginx_escape(slug)}.error.log warn;
 
     location = /__health {{
@@ -113,6 +167,29 @@ def build_site_server(host: str, slug: str, listen_port: int) -> str:
     location = /__honeypot__/capture {{
         default_type application/json;
         return 200 '{{"status":"received"}}';
+    }}
+
+    location / {{
+        try_files $uri $uri/ =404;
+    }}
+}}
+'''
+
+def build_kibana():
+    return f'''server {{
+    listen 5601;
+    server_name kibana.local;
+
+    root /usr/share/nginx/sites/kibana.local;
+    index index.html;
+
+    access_log /var/log/nginx/kibana.local.access.log main;
+    error_log /var/log/nginx/kibana.local.error.log warn;
+
+    location = /__health {{
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\\n";
     }}
 
     location / {{
@@ -203,6 +280,8 @@ def main() -> int:
         target = str(result["target"])
         host = safe_host(target)
         slug = safe_slug(str(result["output_dir"]))
+        site_id = str(result["site-id"])
+
         local_site_dir = args.sites_root / slug
 
         if not local_site_dir.is_dir():
@@ -211,10 +290,16 @@ def main() -> int:
         site_config_path = generated_sites_dir / f"{slug}.conf"
         write_atomic(
             site_config_path,
-            build_site_server(host=host, slug=slug, listen_port=args.listen_port),
+            build_site_server(
+                host=host, 
+                slug=slug,
+                site_id=site_id, 
+                listen_port=args.listen_port
+            ),
         )
 
         generated_metadata.append({
+            "site_id": site_id,
             "host": host,
             "slug": slug,
             "config": str(site_config_path),
@@ -228,6 +313,7 @@ def main() -> int:
         generated_sites_dir / "00-default.conf",
         build_default_server(first_slug=first_slug, listen_port=args.listen_port),
     )
+    #write_atomic( generated_sites_dir / "kibana.local.conf" , build_kibana())
 
     inventory = {
         "listen_port": args.listen_port,

@@ -21,4 +21,4 @@ RUN pip install --no-cache-dir joblib pandas numpy scikit-learn
 VOLUME ["/app/logs","/data"]
 
 # Comando que mantiene la inferencia viva
-CMD ["python", "zeek_tail_predict.py", "--model", "/app/model/gridsearch_v3.joblib", "--conn_json", "/app/logs/conn.log","--threshold", "0.75","--out_ips","/data/detected_ips.txt"]
+CMD ["python", "zeek_tail_predict.py", "--model", "/app/model/gridsearch_v3.joblib", "--conn_json", "/app/logs/conn.log","--malicious-threshold", "0.75","--suspicious-threshold","0.65","--out_ips","/data/detected_ips.txt"]
