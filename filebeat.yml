@@ -64,8 +64,8 @@ output.logstash:
   hosts:
     - "logstash:5044"
 
-output.logstash:
-  hosts: ["logstash:5044"]
+#output.logstash:
+#  hosts: ["logstash:5044"]
 
 setup.kibana.enabled: false
 monitoring.enabled: false
