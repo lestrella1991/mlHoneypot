@@ -14,7 +14,7 @@ configuraciones, captura de telemetría con Zeek, clasificación de
 conexiones mediante un modelo de Machine Learning y observabilidad con
 Elastic Stack.
 
-> \[!IMPORTANT\] Este repositorio corresponde a una **PoC / laboratorio
+> [!IMPORTANT] Este repositorio corresponde a una **PoC / laboratorio
 > educativo**. No pretende reemplazar controles preventivos, IDS/IPS,
 > SIEM, EDR, Threat Intelligence ni el análisis humano. La clasificación
 > producida por el modelo debe interpretarse como una señal adicional
@@ -133,7 +133,7 @@ chmod +x generate_model.sh
 ./generate_model.sh
 ```
 
-> \[!NOTE\] El modelo entrenado puede no estar versionado en Git debido
+> [!NOTE] El modelo entrenado puede no estar versionado en Git debido
 > a su tamaño. La intención es que pueda **regenerarse a partir del
 > proceso de entrenamiento** incluido en el proyecto.
 
@@ -227,6 +227,7 @@ mlHoneypot/
 ├── recon/                 # Crawler / reconocimiento / generación
 ├── sites/                 # Contenido de los sitios clonados
 ├── tor/                   # Componentes opcionales relacionados
+├── recon-output/          # Sitios activos detectados
 ├── docker-compose.yml
 ├── filebeat.yml
 ├── logstash.conf
@@ -328,8 +329,8 @@ utilizada.
 Ejemplo conceptual:
 
 ``` env
-# Credenciales / configuración del stack
-ELASTIC_PASSWORD=change_me
+#Dominio
+TARGET_DOMAIN=domain.to.clone
 
 # VPN opcional
 NORDVPN_TOKEN=change_me
