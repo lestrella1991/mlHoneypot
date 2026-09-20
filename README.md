@@ -14,7 +14,8 @@ configuraciones, captura de telemetría con Zeek, clasificación de
 conexiones mediante un modelo de Machine Learning y observabilidad con
 Elastic Stack.
 
-> [!IMPORTANT] Este repositorio corresponde a una **PoC / laboratorio
+> [!IMPORTANT]
+> Este repositorio corresponde a una **PoC / laboratorio
 > educativo**. No pretende reemplazar controles preventivos, IDS/IPS,
 > SIEM, EDR, Threat Intelligence ni el análisis humano. La clasificación
 > producida por el modelo debe interpretarse como una señal adicional
@@ -133,7 +134,7 @@ chmod +x generate_model.sh
 ./generate_model.sh
 ```
 
-> [!NOTE] El modelo entrenado puede no estar versionado en Git debido
+> El modelo entrenado puede no estar versionado en Git debido
 > a su tamaño. La intención es que pueda **regenerarse a partir del
 > proceso de entrenamiento** incluido en el proyecto.
 
@@ -336,10 +337,12 @@ TARGET_DOMAIN=domain.to.clone
 NORDVPN_TOKEN=change_me
 ```
 
-> \[!CAUTION\] Los nombres anteriores son ilustrativos. Utilizar como
+> \[!CAUTION\] 
+> Los nombres anteriores son ilustrativos. Utilizar como
 > referencia definitiva `env.example` y `docker-compose.yml`.
 
-> \[!CAUTION\] No publiques `.env`, tokens, contraseñas, certificados
+> \[!CAUTION\]
+> No publiques `.env`, tokens, contraseñas, certificados
 > privados ni credenciales de servicios externos.
 
 ### 4. Permisos
@@ -432,7 +435,8 @@ server {
 El código `444` es una extensión de Nginx que cierra la conexión sin
 enviar una respuesta HTTP.
 
-> \[!IMPORTANT\] El `default_server` debe existir en el **punto de
+> \[!IMPORTANT\]
+> El `default_server` debe existir en el **punto de
 > entrada que recibe la conexión externa**. Si existe un reverse proxy
 > delante del Nginx que sirve los clones, aplicar el control en el
 > listener expuesto a Internet, no únicamente en un virtual host
@@ -495,7 +499,8 @@ suspicious
 malicious
 ```
 
-> \[!IMPORTANT\] La probabilidad o etiqueta generada por el modelo no
+> \[!IMPORTANT\]
+> La probabilidad o etiqueta generada por el modelo no
 > constituye por sí sola evidencia suficiente para atribuir una
 > actividad a un atacante ni reemplaza una investigación.
 
